@@ -1,0 +1,13 @@
+# AIM Handler - Transparent AI System
+# No external dependencies required!
+# This system runs on pure Python standard library
+
+# Optional: For enhanced functionality (not required)
+# numpy>=1.20.0  # For numerical operations if you extend the system
+# matplotlib>=3.3.0  # For visualizing concept relationships
+# networkx>=2.5  # For graph-based concept exploration
+
+# Development dependencies
+# pytest>=6.0.0  # For running tests
+# black>=21.0  # For code formatting
+# mypy>=0.900  # For type checking
