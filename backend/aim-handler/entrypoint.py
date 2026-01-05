@@ -1,6 +1,6 @@
 """
 AIM Handler - Standalone Test Application
-This demonstrates the transparent AI system in action.
+This demonstrates the transparent AI system with comprehensive training.
 """
 
 import sys
@@ -10,6 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from agent import CompositeAgentSystem
+from trainer import AITrainer, TrainingConfig, HuggingFaceDatasetTrainer, create_training_datasets
 import json
 
 
@@ -25,13 +26,108 @@ def print_json(data: dict, indent: int = 2):
     print(json.dumps(data, indent=indent))
 
 
+def train_comprehensive():
+    """Comprehensive training with multiple datasets"""
+    print_header("Comprehensive Training Mode")
+    
+    system = CompositeAgentSystem(Path("aim_model.pkl"))
+    
+    # Load existing model if available
+    try:
+        system.load()
+        print("✓ Loaded existing model")
+        state = system.ai_system.inspect_state()
+        print(f"  Starting with: {state['total_concepts']} concepts, "
+              f"{state['language_states']} language states\n")
+    except:
+        print("Starting with fresh model\n")
+    
+    # Create trainer
+    config = TrainingConfig(
+        batch_size=5,
+        verbose=True,
+        extract_concepts=True,
+        learn_relations=True
+    )
+    trainer = AITrainer(system, config)
+    
+    # Get all datasets
+    datasets = create_training_datasets()
+    hf_trainer = HuggingFaceDatasetTrainer(system)
+    
+    print("Available datasets:")
+    print("  1. General Knowledge (5 samples)")
+    print("  2. Technology & Programming (5 samples)")
+    print("  3. Science & Nature (5 samples)")
+    print("  4. Mathematics & Logic (5 samples)")
+    print("  5. Wikipedia-style (10 samples)")
+    print("  6. Conversation Q&A (5 samples)")
+    print("  7. Code Documentation (5 samples)")
+    print("  8. ALL DATASETS (40 samples)")
+    print()
+    
+    # Train on all by default
+    print("Training on ALL datasets...\n")
+    
+    # Train on each dataset
+    print_header("Phase 1: General Knowledge")
+    trainer.train_from_data(datasets['general'])
+    
+    print_header("Phase 2: Technology & Programming")
+    trainer.train_from_data(datasets['technology'])
+    
+    print_header("Phase 3: Science & Nature")
+    trainer.train_from_data(datasets['science'])
+    
+    print_header("Phase 4: Mathematics & Logic")
+    trainer.train_from_data(datasets['mathematics'])
+    
+    print_header("Phase 5: Wikipedia-style Data")
+    trainer.train_from_data(hf_trainer.create_synthetic_wikipedia_sample())
+    
+    print_header("Phase 6: Conversation Q&A")
+    trainer.train_from_data(hf_trainer.create_synthetic_conversation_sample())
+    
+    print_header("Phase 7: Code Documentation")
+    trainer.train_from_data(hf_trainer.create_synthetic_code_sample())
+    
+    print_header("Training Complete!")
+    
+    # Show final state
+    state = system.ai_system.inspect_state()
+    print(f"\nFinal System State:")
+    print(f"  Total concepts: {state['total_concepts']}")
+    print(f"  Indexed keywords: {state['indexed_keywords']}")
+    print(f"  Language states: {state['language_states']}")
+    print(f"  Pattern chains: {state['pattern_chains']}")
+    
+    print(f"\nMost Activated Concepts:")
+    for name, count in state.get('most_activated_concepts', [])[:10]:
+        print(f"  {name}: {count} activations")
+    
+    system.save()
+    print("\n✓ Model saved to 'aim_model.pkl'")
+
+
 def demo_basic_learning():
     """Demonstrate basic learning capabilities"""
-    print_header("Demo 1: Basic Learning")
+    print_header("Demo 1: Basic Learning with Training Data")
     
     system = CompositeAgentSystem(Path("demo_model.pkl"))
     
-    # Teach some basic concepts
+    # Train on a small dataset first
+    print("Pre-training on technology dataset...")
+    config = TrainingConfig(batch_size=5, verbose=False)
+    trainer = AITrainer(system, config)
+    
+    datasets = create_training_datasets()
+    trainer.train_from_data(datasets['technology'])
+    
+    print(f"✓ Pre-training complete!")
+    state = system.ai_system.inspect_state()
+    print(f"  Learned {state['total_concepts']} concepts\n")
+    
+    # Teach some specific concepts
     print("Teaching concept: Python")
     system.teach_concept(
         name="Python",
@@ -69,12 +165,7 @@ def demo_basic_learning():
         }
     )
     
-    print("\nLearning from text...")
-    system.process_task(
-        "Python is widely used in machine learning because it has many libraries like TensorFlow and PyTorch",
-        task_type="learn"
-    )
-    
+    system.save()
     print("\n✓ Learning complete!")
     print(f"System now knows {len(system.ai_system.memory.concepts)} concepts")
 
@@ -89,7 +180,9 @@ def demo_understanding():
     queries = [
         "What is Python?",
         "Tell me about machine learning",
-        "How are Python and machine learning related?"
+        "How are Python and machine learning related?",
+        "What is artificial intelligence?",
+        "Explain neural networks"
     ]
     
     for query in queries:
@@ -101,9 +194,11 @@ def demo_understanding():
             concepts = result['result']['retrieved'].get('items', [])
             print(f"Found {len(concepts)} relevant concepts:")
             for concept in concepts[:3]:
-                print(f"  - {concept['name']}")
+                print(f"  • {concept['name']}")
                 if concept.get('attributes'):
-                    print(f"    Attributes: {concept['attributes']}")
+                    attrs = list(concept['attributes'].items())[:2]
+                    for key, value in attrs:
+                        print(f"    - {key}: {value}")
 
 
 def demo_reasoning():
@@ -119,18 +214,15 @@ def demo_reasoning():
     if result['result'].get('chain'):
         chain = result['result']['chain']
         print("\nReasoning chain:")
-        print(" ".join(chain))
+        print("  " + " ".join(chain))
     
-    print("\n\nComparing concepts...")
-    comparison = system.reasoner.act({
-        'type': 'compare',
-        'concepts': ['Python', 'Machine Learning']
-    })
+    print("\n\nReasoning about 'Machine Learning'...")
+    result = system.process_task("Machine Learning", task_type="reason")
     
-    if comparison.outputs.get('comparison'):
-        comp = comparison.outputs['comparison']
-        print("\nCommon attributes:", comp.get('common_attributes', []))
-        print("Common relations:", comp.get('common_relations', []))
+    if result['result'].get('chain'):
+        chain = result['result']['chain']
+        print("\nReasoning chain:")
+        print("  " + " ".join(chain))
 
 
 def demo_transparency():
@@ -149,7 +241,7 @@ def demo_transparency():
             print(f"  {key}: {value}")
     
     print("\nMost Activated Concepts:")
-    for name, count in inspection['ai_system'].get('most_activated_concepts', [])[:5]:
+    for name, count in inspection['ai_system'].get('most_activated_concepts', [])[:10]:
         print(f"  {name}: {count} activations")
     
     print("\nAgent Statistics:")
@@ -166,22 +258,19 @@ def demo_language_generation():
     system = CompositeAgentSystem(Path("demo_model.pkl"))
     system.load()
     
-    # Add more training data
-    training_texts = [
-        "The quick brown fox jumps over the lazy dog.",
-        "Python programming is fun and powerful.",
-        "Machine learning models can predict outcomes.",
-        "Data science involves analyzing large datasets.",
-        "Artificial intelligence is transforming technology."
+    prompts = [
+        "Python programming",
+        "Machine learning",
+        "Artificial intelligence",
+        "Neural networks"
     ]
     
-    print("Training language model...")
-    for text in training_texts:
-        system.process_task(text, task_type="learn")
+    print("Generating text from various prompts:\n")
     
-    print("\nGenerating text from prompt: 'Python programming'")
-    generated = system.ai_system.generate_response("Python programming", max_length=15)
-    print(f"Generated: {generated}")
+    for prompt in prompts:
+        print(f"Prompt: '{prompt}'")
+        generated = system.ai_system.generate_response(prompt, max_length=20)
+        print(f"Generated: {generated}\n")
     
     print("\nLanguage predictions for 'machine learning':")
     tokens = system.ai_system._tokenize("machine learning")
@@ -194,20 +283,24 @@ def interactive_mode():
     """Interactive mode for testing"""
     print_header("Interactive Mode")
     
-    system = CompositeAgentSystem(Path("demo_model.pkl"))
+    system = CompositeAgentSystem(Path("aim_model.pkl"))
     
     # Try to load existing model
     try:
         system.load()
-        print("Loaded existing model")
+        state = system.ai_system.inspect_state()
+        print(f"✓ Loaded existing model")
+        print(f"  Concepts: {state['total_concepts']}, States: {state['language_states']}")
     except:
         print("Starting with fresh model")
+        print("Tip: Run training first with 'python entrypoint.py train'")
     
     print("\nCommands:")
     print("  learn <text>     - Learn from text")
     print("  teach <name>     - Teach a concept (simplified)")
     print("  query <question> - Query the system")
     print("  reason <topic>   - Reason about a topic")
+    print("  generate <text>  - Generate continuation")
     print("  inspect          - Inspect system state")
     print("  save             - Save the model")
     print("  quit             - Exit")
@@ -223,7 +316,16 @@ def interactive_mode():
                 break
             
             elif user_input == "inspect":
-                print_json(system.inspect())
+                inspection = system.inspect()
+                print("\nSystem State:")
+                print(f"  Concepts: {inspection['ai_system']['total_concepts']}")
+                print(f"  Keywords: {inspection['ai_system']['indexed_keywords']}")
+                print(f"  Language States: {inspection['ai_system']['language_states']}")
+                
+                if inspection['ai_system'].get('most_activated_concepts'):
+                    print("\nTop Concepts:")
+                    for name, count in inspection['ai_system']['most_activated_concepts'][:5]:
+                        print(f"  {name}: {count}")
             
             elif user_input == "save":
                 system.save()
@@ -253,12 +355,23 @@ def interactive_mode():
             elif user_input.startswith("query "):
                 question = user_input[6:]
                 result = system.query(question)
-                print_json(result)
+                
+                if 'retrieved' in result['result']:
+                    concepts = result['result']['retrieved'].get('items', [])
+                    print(f"\nFound {len(concepts)} concepts:")
+                    for concept in concepts[:5]:
+                        print(f"  • {concept['name']}")
             
             elif user_input.startswith("reason "):
                 topic = user_input[7:]
                 result = system.process_task(topic, task_type="reason")
-                print_json(result)
+                if result['result'].get('chain'):
+                    print("Chain:", " ".join(result['result']['chain']))
+            
+            elif user_input.startswith("generate "):
+                prompt = user_input[9:]
+                generated = system.ai_system.generate_response(prompt, max_length=30)
+                print(f"Generated: {generated}")
             
             else:
                 print("Unknown command. Type 'quit' to exit.")
@@ -292,8 +405,12 @@ def main():
     if len(sys.argv) > 1:
         command = sys.argv[1]
         
-        if command == "demo":
-            # Run all demos
+        if command == "train":
+            # Comprehensive training
+            train_comprehensive()
+        
+        elif command == "demo":
+            # Run all demos with trained model
             demo_basic_learning()
             demo_understanding()
             demo_reasoning()
@@ -309,13 +426,18 @@ def main():
         
         else:
             print(f"Unknown command: {command}")
-            print("Usage: python entrypoint.py [demo|interactive]")
+            print("\nUsage:")
+            print("  python entrypoint.py train        - Train on all datasets")
+            print("  python entrypoint.py demo         - Run demonstrations")
+            print("  python entrypoint.py interactive  - Interactive mode")
     
     else:
         print("Usage:")
+        print("  python entrypoint.py train        - Train on comprehensive datasets")
         print("  python entrypoint.py demo         - Run demonstrations")
         print("  python entrypoint.py interactive  - Interactive mode")
         print()
+        print("Tip: Run 'train' first to build a knowledge base!")
 
 
 if __name__ == "__main__":
