@@ -80,13 +80,29 @@ class MarkovChain:
         return predictions
     
     def generate(self, start_context: Optional[List[str]] = None, max_length: int = 50) -> List[str]:
-        """Generate a sequence"""
+        """Generate a sequence with some randomness"""
+        import random
+        
         if start_context is None:
             if not self.start_states:
                 return []
             state = list(self.start_states.most_common(1)[0][0])
         else:
-            state = list(start_context[-self.order:])
+            # Pad context if too short
+            if len(start_context) < self.order:
+                # Try to find a start state that begins with what we have
+                for start_state in self.start_states:
+                    if start_state[0] == start_context[0] if start_context else True:
+                        state = list(start_state)
+                        break
+                else:
+                    # Just use most common start
+                    if self.start_states:
+                        state = list(self.start_states.most_common(1)[0][0])
+                    else:
+                        return []
+            else:
+                state = list(start_context[-self.order:])
         
         result = state.copy()
         
@@ -95,9 +111,19 @@ class MarkovChain:
             if not predictions:
                 break
             
-            next_token = predictions[0][0]  # Take most likely
+            # Sample from top predictions with some randomness
+            if len(predictions) > 1 and random.random() < 0.3:
+                # 30% chance to pick second best
+                next_token = predictions[min(1, len(predictions)-1)][0]
+            else:
+                next_token = predictions[0][0]
+            
             result.append(next_token)
             state = state[1:] + [next_token]
+            
+            # Stop at sentence boundaries
+            if next_token in ['.', '?', '!']:
+                break
         
         return result
 
@@ -163,7 +189,7 @@ class TransparentAI:
     
     def __init__(self, model_path: Optional[Path] = None):
         self.memory = SymbolicMemory()
-        self.language_model = MarkovChain(order=3)
+        self.language_model = MarkovChain(order=2)  # Reduced from 3 to 2 for better short-text handling
         self.pattern_chains: Dict[str, MarkovChain] = {}
         self.learning_history: List[Dict] = []
         self.model_path = model_path or Path("model_state.pkl")
