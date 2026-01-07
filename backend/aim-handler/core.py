@@ -10,7 +10,6 @@ from collections import defaultdict, Counter
 from dataclasses import dataclass, field
 from typing import Dict, List, Set, Tuple, Any, Optional
 from pathlib import Path
-import hashlib
 
 
 @dataclass
@@ -284,7 +283,47 @@ class TransparentAI:
     
     def save_model(self):
         """Save the model state - this is the actual 'model weights'"""
+        # Convert transitions to serializable format
+        language_transitions_serializable = {}
+        for state_tuple, counter in self.language_model.transitions.items():
+            # Convert tuple key to string
+            key = "|".join(state_tuple)
+            language_transitions_serializable[key] = dict(counter)
+        
+        language_starts_serializable = {}
+        for state_tuple, count in self.language_model.start_states.items():
+            key = "|".join(state_tuple)
+            language_starts_serializable[key] = count
+        
+        # Convert pattern chains
+        pattern_chains_serializable = {}
+        for name, chain in self.pattern_chains.items():
+            transitions_ser = {}
+            for state_tuple, counter in chain.transitions.items():
+                key = "|".join(state_tuple)
+                transitions_ser[key] = dict(counter)
+            
+            starts_ser = {}
+            for state_tuple, count in chain.start_states.items():
+                key = "|".join(state_tuple)
+                starts_ser[key] = count
+            
+            pattern_chains_serializable[name] = {
+                'transitions': transitions_ser,
+                'starts': starts_ser
+            }
+        
         state = {
+            'memory_concepts': {name: c.to_dict() for name, c in self.memory.concepts.items()},
+            'memory_index': {k: list(v) for k, v in self.memory.index.items()},
+            'language_transitions': language_transitions_serializable,
+            'language_starts': language_starts_serializable,
+            'pattern_chains': pattern_chains_serializable,
+            'learning_history': self.learning_history
+        }
+        
+        # Save as pickle (with original format for efficiency)
+        pickle_state = {
             'memory_concepts': {name: c.to_dict() for name, c in self.memory.concepts.items()},
             'memory_index': {k: list(v) for k, v in self.memory.index.items()},
             'language_transitions': dict(self.language_model.transitions),
@@ -300,12 +339,12 @@ class TransparentAI:
         }
         
         with open(self.model_path, 'wb') as f:
-            pickle.dump(state, f)
+            pickle.dump(pickle_state, f)
         
-        # Also save as JSON for transparency
+        # Save as JSON for transparency (with serialized format)
         json_path = self.model_path.with_suffix('.json')
         with open(json_path, 'w') as f:
-            json.dump(self._make_json_serializable(state), f, indent=2)
+            json.dump(state, f, indent=2)
     
     def load_model(self):
         """Load the model state"""
@@ -330,19 +369,77 @@ class TransparentAI:
         for key, names in state['memory_index'].items():
             self.memory.index[key] = set(names)
         
-        # Restore language model
-        self.language_model.transitions = defaultdict(Counter, state['language_transitions'])
-        self.language_model.start_states = Counter(state['language_starts'])
+        # Restore language model - handle both formats
+        self.language_model.transitions = defaultdict(Counter)
+        transitions_data = state.get('language_transitions', {})
+        
+        if transitions_data:
+            # Check if it's the serialized format (string keys) or pickle format (tuple keys)
+            first_key = next(iter(transitions_data.keys())) if transitions_data else None
+            
+            if isinstance(first_key, str):
+                # Serialized format - convert back to tuples
+                for key_str, counter_dict in transitions_data.items():
+                    key_tuple = tuple(key_str.split("|"))
+                    self.language_model.transitions[key_tuple] = Counter(counter_dict)
+            else:
+                # Pickle format - direct load
+                for key_tuple, counter_dict in transitions_data.items():
+                    self.language_model.transitions[key_tuple] = Counter(counter_dict)
+        
+        # Restore start states
+        self.language_model.start_states = Counter()
+        starts_data = state.get('language_starts', {})
+        
+        if starts_data:
+            first_key = next(iter(starts_data.keys())) if starts_data else None
+            
+            if isinstance(first_key, str):
+                # Serialized format
+                for key_str, count in starts_data.items():
+                    key_tuple = tuple(key_str.split("|"))
+                    self.language_model.start_states[key_tuple] = count
+            else:
+                # Pickle format
+                self.language_model.start_states = Counter(starts_data)
         
         # Restore pattern chains
         self.pattern_chains = {}
-        for name, chain_data in state['pattern_chains'].items():
+        for name, chain_data in state.get('pattern_chains', {}).items():
             chain = MarkovChain(order=2)
-            chain.transitions = defaultdict(Counter, chain_data['transitions'])
-            chain.start_states = Counter(chain_data['starts'])
+            
+            # Restore transitions
+            transitions_data = chain_data.get('transitions', {})
+            if transitions_data:
+                first_key = next(iter(transitions_data.keys())) if transitions_data else None
+                
+                if isinstance(first_key, str):
+                    # Serialized format
+                    for key_str, counter_dict in transitions_data.items():
+                        key_tuple = tuple(key_str.split("|"))
+                        chain.transitions[key_tuple] = Counter(counter_dict)
+                else:
+                    # Pickle format
+                    for key_tuple, counter_dict in transitions_data.items():
+                        chain.transitions[key_tuple] = Counter(counter_dict)
+            
+            # Restore start states
+            starts_data = chain_data.get('starts', {})
+            if starts_data:
+                first_key = next(iter(starts_data.keys())) if starts_data else None
+                
+                if isinstance(first_key, str):
+                    # Serialized format
+                    for key_str, count in starts_data.items():
+                        key_tuple = tuple(key_str.split("|"))
+                        chain.start_states[key_tuple] = count
+                else:
+                    # Pickle format
+                    chain.start_states = Counter(starts_data)
+            
             self.pattern_chains[name] = chain
         
-        self.learning_history = state['learning_history']
+        self.learning_history = state.get('learning_history', [])
     
     def _tokenize(self, text: str) -> List[str]:
         """Simple tokenization"""
@@ -377,19 +474,6 @@ class TransparentAI:
         
         return concepts
     
-    def _make_json_serializable(self, obj: Any) -> Any:
-        """Convert object to JSON-serializable format"""
-        if isinstance(obj, dict):
-            if isinstance(obj, defaultdict):
-                obj = dict(obj)
-            return {k: self._make_json_serializable(v) for k, v in obj.items()}
-        elif isinstance(obj, (list, tuple, set)):
-            return [self._make_json_serializable(item) for item in obj]
-        elif isinstance(obj, Counter):
-            return dict(obj)
-        else:
-            return obj
-    
     def inspect_state(self) -> Dict[str, Any]:
         """Inspect the current state of the model - complete transparency"""
         return {
@@ -406,4 +490,4 @@ class TransparentAI:
                     reverse=True
                 )[:10]
             ]
-          }
+        }
