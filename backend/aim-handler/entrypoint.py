@@ -424,18 +424,25 @@ def main():
         elif command == "interactive":
             interactive_mode()
         
+        elif command == "chat":
+            # Chatbot mode
+            from chatbot import interactive_chat
+            interactive_chat()
+        
         else:
             print(f"Unknown command: {command}")
             print("\nUsage:")
             print("  python entrypoint.py train        - Train on all datasets")
             print("  python entrypoint.py demo         - Run demonstrations")
             print("  python entrypoint.py interactive  - Interactive mode")
+            print("  python entrypoint.py chat         - Chatbot mode")
     
     else:
         print("Usage:")
         print("  python entrypoint.py train        - Train on comprehensive datasets")
         print("  python entrypoint.py demo         - Run demonstrations")
         print("  python entrypoint.py interactive  - Interactive mode")
+        print("  python entrypoint.py chat         - Chatbot mode (learned responses)")
         print()
         print("Tip: Run 'train' first to build a knowledge base!")
 
