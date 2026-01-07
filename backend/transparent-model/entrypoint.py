@@ -111,3 +111,28 @@ sentence_vocab = {
   'how are you': 1,
   'hi!': 2
 }
+
+def tokenize(input_text: str):
+    chars = list(input_text)
+
+    new_vocab = {
+      'letters': [],
+      'words': [],
+      'sentences': []
+    }
+
+    word_pending: str
+    word_tokens: list
+    char_tokens: list
+    for echar in chars:
+        if not letter_vocab[echar]:
+           new_vocab['letters'].append()
+           continue
+
+        if word_vocab[word_pending]:
+              word_tokens.append(word_vocab[word_pending])
+              word_pending = ''
+
+        word_pending += echar
+        char_tokens.append(letter_vocab[echar])
+        
